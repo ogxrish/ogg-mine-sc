@@ -213,6 +213,12 @@ pub struct WithdrawProgramToken<'info> {
     #[account(mut)]
     pub signer_token_account: Account<'info, TokenAccount>,
     #[account(
+        mut,
+        seeds = [b"token_account"],
+        bump,
+    )]
+    pub program_token_account: Account<'info, TokenAccount>,
+    #[account(
         seeds = [b"auth"],
         bump,
     )]
