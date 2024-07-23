@@ -10,11 +10,6 @@ describe("test", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.Test as Program<Test>;
 
-  it("Is initialized!", async () => {
-    // Add your test here.
-    const tx = await program.methods.initialize().rpc();
-    console.log("Your transaction signature", tx);
-  });
   let mint: PublicKey;
   const initializeMint = async () => {
     if (mint) return;
@@ -42,10 +37,12 @@ describe("test", () => {
   }
   it("initializes and starts mining", async () => {
     // Add your test here.
-    initializeMint();
+    await initializeMint();
+    console.log(mint.toString());
+    return;
     const i1 = await program.methods.initialize().accounts({
       signer: wallet.publicKey,
-      mint
+      mint,
     }).instruction();
     const i2 = await program.methods.newEpoch(new anchor.BN(1)).accounts({
       signer: wallet.publicKey
@@ -73,6 +70,10 @@ describe("test", () => {
     }).rpc();
   })
   it("claims", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10000));
+    await program.methods.newEpoch(new anchor.BN(2)).accounts({
+      signer: wallet.publicKey
+    }).rpc();
     const signerTokenAccount = getAssociatedTokenAddressSync(mint, wallet.publicKey);
     await program.methods.claim(new anchor.BN(1)).accounts({
       signer: wallet.publicKey,

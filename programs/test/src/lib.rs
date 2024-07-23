@@ -2,10 +2,10 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount, transfer, Transfer};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
-declare_id!("AkRNJmwe6SdYDZmtDrp4XRjYtKdMJx7bvr2xBDhbwn28");
+declare_id!("Cwjz97MhGiLSvKYxomtYkTEy3idYNwt7MbwcTt8UwpVp");
 
 const EPOCH_LENGTH: u64 = 10; // 86400; // one day in seconds
-const STARTING_REWARD: u64 = 10_000_000;
+const EPOCH_REWARD_PERCENT: u64 = 2;
 const CREATOR: &str = "58V6myLoy5EVJA3U2wPdRDMUXpkwg8Vfw5b6fHqi2mEj";
 #[program]
 pub mod test {
@@ -51,11 +51,13 @@ pub mod test {
         ctx.accounts.global_account.epoch += 1;
         ctx.accounts.global_account.epoch_end = time + EPOCH_LENGTH;
         ctx.accounts.epoch_account.total_miners = 0;
-        ctx.accounts.global_account.reward = if epoch == 1 {
+        // change this to balance of ogg holding account
+        ctx.accounts.epoch_account.reward = if epoch == 1 {
             STARTING_REWARD
         } else {
             ctx.accounts.global_account.reward * 7 / 8
         };
+        ctx.accounts.global_account.reward = ctx.accounts.epoch_account.reward;
         Ok(())
     }
     pub fn mine(ctx: Context<Mine>, epoch: u64) -> Result<()> {
@@ -66,7 +68,7 @@ pub mod test {
         if epoch != ctx.accounts.global_account.epoch {
             return Err(CustomError::WrongEpochProvided.into())
         }
-        let price = LAMPORTS_PER_SOL / 10 / 2000 * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
+        let price = (LAMPORTS_PER_SOL * 0.005) * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
         ctx.accounts.epoch_account.total_miners += 1;
         anchor_lang::system_program::transfer(
             CpiContext::new(
@@ -78,6 +80,8 @@ pub mod test {
             ),
             price,
         )?;
+        ctx.accounts.mine_account.owner = ctx.accounts.signer.key();
+        ctx.accounts.mine_account.epoch = epoch;
         Ok(())
     }
     pub fn claim(ctx: Context<Claim>, epoch: u64) -> Result<()> {
@@ -94,7 +98,7 @@ pub mod test {
                 },
                 &[&[b"auth", &[ctx.bumps.program_authority]]]
             ),
-            ctx.accounts.global_account.reward / ctx.accounts.epoch_account.total_miners
+            ctx.accounts.epoch_account.reward / ctx.accounts.epoch_account.total_miners
         )?;
         Ok(())
     }
@@ -147,7 +151,7 @@ pub struct Initialize<'info> {
         payer = signer,
         seeds = [b"global"],
         bump,
-        space = 8 + 8 + 8 + 8
+        space = 8 + 8 + 8 + 8 + 8
     )]
     pub global_account: Account<'info, GlobalDataAccount>,
     pub system_program: Program<'info, System>,
@@ -182,6 +186,7 @@ pub struct WithdrawFees<'info> {
 #[account]
 pub struct EpochAccount {
     pub total_miners: u64,
+    pub reward: u64,
 }
 #[derive(Accounts)]
 #[instruction(epoch: u64)]
@@ -199,13 +204,16 @@ pub struct NewEpoch<'info> {
         payer = signer,
         seeds = [b"epoch", epoch.to_le_bytes().as_ref()],
         bump,
-        space = 8 + 8,
+        space = 8 + 8 + 8,
     )]
     pub epoch_account: Account<'info, EpochAccount>,
     pub system_program: Program<'info, System>,
 }
 #[account]
-pub struct MineAccount {}
+pub struct MineAccount {
+    owner: Pubkey,
+    epoch: u64,
+}
 #[derive(Accounts)]
 #[instruction(epoch: u64)]
 pub struct Mine<'info> {
@@ -216,7 +224,7 @@ pub struct Mine<'info> {
         seeds = [b"mine", signer.key().as_ref(), epoch.to_le_bytes().as_ref()],
         bump,
         payer = signer,
-        space = 8,
+        space = 8 + 32 + 8,
     )]
     pub mine_account: Account<'info, MineAccount>,
     #[account(
@@ -251,6 +259,7 @@ pub struct Claim<'info> {
         close = signer,
     )]
     pub mine_account: Account<'info, MineAccount>,
+    #[account(mut)]
     pub signer_token_account: Account<'info, TokenAccount>,
     #[account(
         mut,
