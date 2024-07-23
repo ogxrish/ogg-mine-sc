@@ -51,12 +51,8 @@ pub mod test {
         ctx.accounts.global_account.epoch += 1;
         ctx.accounts.global_account.epoch_end = time + EPOCH_LENGTH;
         ctx.accounts.epoch_account.total_miners = 0;
-        // change this to balance of ogg holding account
-        ctx.accounts.epoch_account.reward = if epoch == 1 {
-            STARTING_REWARD
-        } else {
-            ctx.accounts.global_account.reward * 7 / 8
-        };
+        // sets the total reward to be balance of holder account / 100 * 2
+        ctx.accounts.epoch_account.reward = ctx.accounts.program_token_account.amount / 100 * EPOCH_REWARD_PERCENT;
         ctx.accounts.global_account.reward = ctx.accounts.epoch_account.reward;
         Ok(())
     }
@@ -68,7 +64,7 @@ pub mod test {
         if epoch != ctx.accounts.global_account.epoch {
             return Err(CustomError::WrongEpochProvided.into())
         }
-        let price = (LAMPORTS_PER_SOL * 0.005) * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
+        let price = (LAMPORTS_PER_SOL * 5 / 1000) * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
         ctx.accounts.epoch_account.total_miners += 1;
         anchor_lang::system_program::transfer(
             CpiContext::new(
@@ -82,24 +78,33 @@ pub mod test {
         )?;
         ctx.accounts.mine_account.owner = ctx.accounts.signer.key();
         ctx.accounts.mine_account.epoch = epoch;
+        ctx.accounts.mine_data.epochs += 1;
         Ok(())
     }
     pub fn claim(ctx: Context<Claim>, epoch: u64) -> Result<()> {
         if epoch >= ctx.accounts.global_account.epoch {
             return Err(CustomError::InvalidEpoch.into())
         }
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.program_authority.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.program_token_account.to_account_info(),
-                    to: ctx.accounts.signer_token_account.to_account_info(),
-                    authority: ctx.accounts.program_authority.to_account_info()
-                },
-                &[&[b"auth", &[ctx.bumps.program_authority]]]
-            ),
-            ctx.accounts.epoch_account.reward / ctx.accounts.epoch_account.total_miners
-        )?;
+        // if epoch within 10 of current epoch, send user tokens
+        // else fail silently, closing their account
+        if epoch <= 10 || epoch >= ctx.accounts.global_account.epoch  - 10 {
+            let reward = ctx.accounts.epoch_account.reward / ctx.accounts.epoch_account.total_miners;
+            transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.program_authority.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.program_token_account.to_account_info(),
+                        to: ctx.accounts.signer_token_account.to_account_info(),
+                        authority: ctx.accounts.program_authority.to_account_info()
+                    },
+                    &[&[b"auth", &[ctx.bumps.program_authority]]]
+                ),
+                reward
+            )?;
+            ctx.accounts.mine_data.claimed += reward;
+        } else {
+            ctx.accounts.mine_data.missed += 1;
+        }
         Ok(())
     }
 }
@@ -207,7 +212,18 @@ pub struct NewEpoch<'info> {
         space = 8 + 8 + 8,
     )]
     pub epoch_account: Account<'info, EpochAccount>,
+    #[account(
+        seeds = [b"token_account"],
+        bump,
+    )]
+    pub program_token_account: Account<'info, TokenAccount>,
     pub system_program: Program<'info, System>,
+}
+#[account]
+pub struct MineData {
+    claimed: u64,
+    epochs: u64,
+    missed: u64,
 }
 #[account]
 pub struct MineAccount {
@@ -227,6 +243,14 @@ pub struct Mine<'info> {
         space = 8 + 32 + 8,
     )]
     pub mine_account: Account<'info, MineAccount>,
+    #[account(
+        init_if_needed,
+        seeds = [b"mine_data", signer.key().as_ref()],
+        bump,
+        payer = signer,
+        space = 8 + 8 + 8 + 8
+    )]
+    pub mine_data: Account<'info, MineData>,
     #[account(
         mut,
         seeds = [b"epoch", epoch.to_le_bytes().as_ref()],
@@ -259,6 +283,12 @@ pub struct Claim<'info> {
         close = signer,
     )]
     pub mine_account: Account<'info, MineAccount>,
+    #[account(
+        mut,
+        seeds = [b"mine_data", signer.key().as_ref()],
+        bump,
+    )]
+    pub mine_data: Account<'info, MineData>,
     #[account(mut)]
     pub signer_token_account: Account<'info, TokenAccount>,
     #[account(
