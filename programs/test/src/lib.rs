@@ -86,7 +86,7 @@ pub mod test {
             return Err(CustomError::InvalidEpoch.into())
         }
         // if epoch within 10 of current epoch, send user tokens
-        // else fail silently, closing their account
+        // else fail silently, closing their account and incrementing missed
         if epoch <= 10 || epoch >= ctx.accounts.global_account.epoch  - 10 {
             let reward = ctx.accounts.epoch_account.reward / ctx.accounts.epoch_account.total_miners;
             transfer(
