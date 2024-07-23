@@ -10,7 +10,7 @@ describe("test", () => {
   anchor.setProvider(provider);
   const program = anchor.workspace.Test as Program<Test>;
 
-  let mint: PublicKey;
+  let mint: PublicKey = new PublicKey("J43bGRufM646mhHgibfzdxPAZy6jLxx6ccK1ACuokqcT");
   const initializeMint = async () => {
     if (mint) return;
     mint = await createMint(
@@ -34,12 +34,26 @@ describe("test", () => {
       wallet.payer,
       100_000 * 10 ** 9
     )
+    const tokenAccount2 = await createAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      mint,
+      new PublicKey("58V6myLoy5EVJA3U2wPdRDMUXpkwg8Vfw5b6fHqi2mEj")
+    );
+    await mintTo(
+      provider.connection,
+      wallet.payer,
+      mint,
+      tokenAccount2,
+      wallet.payer,
+      100000 * 10 ** 9
+    )
   }
   it("initializes and starts mining", async () => {
     // Add your test here.
     await initializeMint();
     console.log(mint.toString());
-    return;
+
     const i1 = await program.methods.initialize().accounts({
       signer: wallet.publicKey,
       mint,

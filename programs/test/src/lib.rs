@@ -2,11 +2,12 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount, transfer, Transfer};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
-declare_id!("Cwjz97MhGiLSvKYxomtYkTEy3idYNwt7MbwcTt8UwpVp");
+declare_id!("HgPsmViWDLp7FqoX2ickWB1oketd8rESrPV8suMsr5yH");
 
 const EPOCH_LENGTH: u64 = 10; // 86400; // one day in seconds
 const EPOCH_REWARD_PERCENT: u64 = 2;
 const CREATOR: &str = "58V6myLoy5EVJA3U2wPdRDMUXpkwg8Vfw5b6fHqi2mEj";
+// redeploy with new creator, withraw program token function, and owner param
 #[program]
 pub mod test {
     use super::*;
@@ -31,6 +32,23 @@ pub mod test {
             amount
         )?;
         Ok(())
+    }
+    pub fn withdraw_program_token(ctx: Context<WithdrawProgramToken>, amount: u64) -> Result<()> {
+        if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
+            return Err(CustomError::WrongSigner.into())
+        }
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.program_token_account.to_account_info(),
+                    to: ctx.accounts.signer_token_account.to_account_info(),
+                    authority: ctx.accounts.program_authority.to_account_info()
+                },
+                &[&[b"auth", &[ctx.bumps.program_authority]]]
+            ),
+            amount
+        )
     }
     pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
         if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
@@ -79,6 +97,7 @@ pub mod test {
         ctx.accounts.mine_account.owner = ctx.accounts.signer.key();
         ctx.accounts.mine_account.epoch = epoch;
         ctx.accounts.mine_data.epochs += 1;
+        ctx.accounts.mine_data.owner = ctx.accounts.signer.key();
         Ok(())
     }
     pub fn claim(ctx: Context<Claim>, epoch: u64) -> Result<()> {
@@ -188,6 +207,20 @@ pub struct WithdrawFees<'info> {
     pub program_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
+#[derive(Accounts)]
+pub struct WithdrawProgramToken<'info> {
+    pub signer: Signer<'info>,
+    #[account(mut)]
+    pub signer_token_account: Account<'info, TokenAccount>,
+    #[account(
+        seeds = [b"auth"],
+        bump,
+    )]
+    /// CHECK: 
+    pub program_authority: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
 #[account]
 pub struct EpochAccount {
     pub total_miners: u64,
@@ -224,6 +257,7 @@ pub struct MineData {
     claimed: u64,
     epochs: u64,
     missed: u64,
+    owner: Pubkey,
 }
 #[account]
 pub struct MineAccount {
@@ -248,7 +282,7 @@ pub struct Mine<'info> {
         seeds = [b"mine_data", signer.key().as_ref()],
         bump,
         payer = signer,
-        space = 8 + 8 + 8 + 8
+        space = 8 + 8 + 8 + 8 + 32
     )]
     pub mine_data: Account<'info, MineData>,
     #[account(
