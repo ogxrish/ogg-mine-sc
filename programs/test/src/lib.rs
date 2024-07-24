@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token::{transfer, Mint, Token, TokenAccount, Transfer}};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
-declare_id!("RjBTVAA8PvLu2syA5yHEizEX3658pwJ67z7vwVreEjt");
+declare_id!("823yCKCDhTFobKttXS7AHghU1Lj9KqxkkFrVSiFUhG5q");
 
 const CREATOR: &str = "Ddi1GaugnX9yQz1WwK1b12m4o23rK1krZQMcnt2aNW97";
 // redeploy with new creator, withraw program token function, and owner param
@@ -15,8 +15,14 @@ pub mod test {
         ctx.accounts.global_account.epoch_end = 0;
         ctx.accounts.global_account.token_decimals = ctx.accounts.mint.decimals as u64;
         ctx.accounts.global_account.reward = 0;
-        ctx.accounts.global_account.epoch_length = 10; // seconds, 86400 for a day
+        ctx.accounts.global_account.epoch_length = 86400 / 4; // seconds, 86400 for a day
         ctx.accounts.global_account.epoch_reward_percent = 2;
+        Ok(())
+    }
+    pub fn initialize_epoch(ctx: Context<InitializeEpoch>, epoch: u64) -> Result<()> {
+        if epoch != 0 {
+            return Err(CustomError::InvalidEpoch.into())
+        }
         Ok(())
     }
     pub fn change_global_parameters(ctx: Context<ChangeGlobalParameters>, epoch_reward_percent: u64, epoch_length: u64) -> Result<()> {
@@ -78,7 +84,9 @@ pub mod test {
         ctx.accounts.global_account.epoch_end = time + ctx.accounts.global_account.epoch_length;
         ctx.accounts.epoch_account.total_miners = 0;
         // sets the total reward to be balance of holder account / 100 * 2
-        ctx.accounts.epoch_account.reward = ctx.accounts.program_token_account.amount / 100 * ctx.accounts.global_account.epoch_reward_percent;
+        ctx.accounts.prev_epoch_account.reward = ctx.accounts.program_token_account.amount / 100 * ctx.accounts.global_account.epoch_reward_percent;
+        ctx.accounts.epoch_account.reward = 0;
+        // ctx.accounts.epoch_account.reward = ctx.accounts.program_token_account.amount / 100 * ctx.accounts.global_account.epoch_reward_percent;
         ctx.accounts.global_account.reward = ctx.accounts.epoch_account.reward;
         Ok(())
     }
@@ -192,6 +200,21 @@ pub struct Initialize<'info> {
     pub token_program: Program<'info, Token>,
 }
 #[derive(Accounts)]
+#[instruction(epoch: u64)]
+pub struct InitializeEpoch<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    #[account(
+        init,
+        seeds = [b"epoch", epoch.to_le_bytes().as_ref()],
+        bump,
+        payer = signer,
+        space = 8 + 8 + 8
+    )]
+    pub epoch_account: Account<'info, EpochAccount>,
+    pub system_program: Program<'info, System>,
+}
+#[derive(Accounts)]
 pub struct ChangeGlobalParameters<'info> {
     pub signer: Signer<'info>,
     #[account(
@@ -263,6 +286,12 @@ pub struct NewEpoch<'info> {
         bump,
     )]
     pub global_account: Account<'info, GlobalDataAccount>,
+    #[account(
+        mut,
+        seeds = [b"epoch", (epoch - 1).to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub prev_epoch_account: Account<'info, EpochAccount>,
     #[account(
         init,
         payer = signer,

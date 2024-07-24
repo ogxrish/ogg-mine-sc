@@ -66,23 +66,37 @@ describe("test", () => {
     // Add your test here.
     await initializeMint();
     console.log(mint.toString());
-
+    const [prevEpochAccount] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
+      program.programId,
+    )
+    await program.methods.initializeEpoch(new anchor.BN(0)).accounts({
+      signer: wallet.publicKey,
+    }).rpc();
     const i1 = await program.methods.initialize().accounts({
       signer: wallet.publicKey,
       mint,
     }).instruction();
+
     const signerTokenAccount = getAssociatedTokenAddressSync(mint, wallet.publicKey);
     const i2 = await program.methods.fundProgramToken(new anchor.BN(50000)).accounts({
       signer: wallet.publicKey,
       signerTokenAccount: signerTokenAccount,
     }).transaction();
     const i3 = await program.methods.newEpoch(new anchor.BN(1)).accounts({
-      signer: wallet.publicKey
+      signer: wallet.publicKey,
+      prevEpochAccount,
     }).instruction();
     const tx = new anchor.web3.Transaction();
     tx.add(i1, i2, i3);
     await provider.sendAndConfirm(tx);
   });
+  return;
+  // it("changes global parameters", async () => {
+  //   await program.methods.changeGlobalParameters(new anchor.BN(2), new anchor.BN(60)).accounts({
+  //     signer: wallet.publicKey
+  //   }).rpc();
+  // })
   
   it("mines", async () => {
     await program.methods.mine(new anchor.BN(1)).accounts({
@@ -114,8 +128,13 @@ describe("test", () => {
   })
   it("claims", async () => {
     await new Promise((resolve) => setTimeout(resolve, 10000));
+    const [prevEpochAccount] = PublicKey.findProgramAddressSync(
+      [Buffer.from("epoch"), new anchor.BN(1).toArrayLike(Buffer, "le", 8)],
+      program.programId,
+    )
     await program.methods.newEpoch(new anchor.BN(2)).accounts({
-      signer: wallet.publicKey
+      signer: wallet.publicKey,
+      prevEpochAccount
     }).rpc();
     const signerTokenAccount = getAssociatedTokenAddressSync(mint, wallet.publicKey);
     const accountBefore = await getAccount(provider.connection, signerTokenAccount);
