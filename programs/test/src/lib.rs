@@ -2,9 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token::{transfer, Mint, Token, TokenAccount, Transfer}};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
-declare_id!("HgPsmViWDLp7FqoX2ickWB1oketd8rESrPV8suMsr5yH");
+declare_id!("RjBTVAA8PvLu2syA5yHEizEX3658pwJ67z7vwVreEjt");
 
-const CREATOR: &str = "58V6myLoy5EVJA3U2wPdRDMUXpkwg8Vfw5b6fHqi2mEj";
+const CREATOR: &str = "Ddi1GaugnX9yQz1WwK1b12m4o23rK1krZQMcnt2aNW97";
 // redeploy with new creator, withraw program token function, and owner param
 #[program]
 pub mod test {
