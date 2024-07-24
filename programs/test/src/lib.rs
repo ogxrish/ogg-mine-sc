@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount, transfer, Transfer};
+use anchor_spl::{associated_token::AssociatedToken, token::{transfer, Mint, Token, TokenAccount, Transfer}};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
 declare_id!("HgPsmViWDLp7FqoX2ickWB1oketd8rESrPV8suMsr5yH");
@@ -336,6 +336,7 @@ pub struct Mine<'info> {
 pub struct Claim<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
+    pub mint: Account<'info, Mint>,
     #[account(
         mut,
         seeds = [b"mine", signer.key().as_ref(), epoch.to_le_bytes().as_ref()],
@@ -349,7 +350,12 @@ pub struct Claim<'info> {
         bump,
     )]
     pub mine_data: Account<'info, MineData>,
-    #[account(mut)]
+    #[account(
+        init_if_needed,
+        payer = signer,
+        associated_token::mint = mint,
+        associated_token::authority = signer
+    )]
     pub signer_token_account: Account<'info, TokenAccount>,
     #[account(
         mut,
@@ -375,6 +381,7 @@ pub struct Claim<'info> {
     pub global_account: Account<'info, GlobalDataAccount>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
 }
 
 
