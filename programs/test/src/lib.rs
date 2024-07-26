@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token::{transfer, Mint, Token, TokenAccount, Transfer}};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
-declare_id!("823yCKCDhTFobKttXS7AHghU1Lj9KqxkkFrVSiFUhG5q");
+declare_id!("6YVNXrYevrCN6VQgDzx5dWY9eJizBW9hSmts62YhbziH");
 
 const CREATOR: &str = "Ddi1GaugnX9yQz1WwK1b12m4o23rK1krZQMcnt2aNW97";
 // redeploy with new creator, withraw program token function, and owner param
@@ -17,6 +17,7 @@ pub mod test {
         ctx.accounts.global_account.reward = 0;
         ctx.accounts.global_account.epoch_length = 86400 / 4; // seconds, 86400 for a day
         ctx.accounts.global_account.epoch_reward_percent = 2;
+        ctx.accounts.global_account.fee_lamports = LAMPORTS_PER_SOL / 10000;
         Ok(())
     }
     pub fn initialize_epoch(ctx: Context<InitializeEpoch>, epoch: u64) -> Result<()> {
@@ -25,12 +26,13 @@ pub mod test {
         }
         Ok(())
     }
-    pub fn change_global_parameters(ctx: Context<ChangeGlobalParameters>, epoch_reward_percent: u64, epoch_length: u64) -> Result<()> {
+    pub fn change_global_parameters(ctx: Context<ChangeGlobalParameters>, epoch_reward_percent: u64, epoch_length: u64, fee_lamports: u64) -> Result<()> {
         if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
             return Err(CustomError::WrongSigner.into())
         }
         ctx.accounts.global_account.epoch_reward_percent = epoch_reward_percent;
         ctx.accounts.global_account.epoch_length = epoch_length;
+        ctx.accounts.global_account.fee_lamports = fee_lamports;
         Ok(())  
     }
     pub fn fund_program_token(ctx: Context<FundProgramToken>, amount: u64) -> Result<()> {
@@ -98,7 +100,7 @@ pub mod test {
         if epoch != ctx.accounts.global_account.epoch {
             return Err(CustomError::WrongEpochProvided.into())
         }
-        let price = (LAMPORTS_PER_SOL * 5 / 1000) * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
+        let price = ctx.accounts.global_account.fee_lamports * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
         ctx.accounts.epoch_account.total_miners += 1;
         anchor_lang::system_program::transfer(
             CpiContext::new(
@@ -164,6 +166,7 @@ pub struct GlobalDataAccount {
     pub reward: u64,
     pub epoch_length: u64,
     pub epoch_reward_percent: u64,
+    pub fee_lamports: u64,
 }
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -193,7 +196,7 @@ pub struct Initialize<'info> {
         payer = signer,
         seeds = [b"global"],
         bump,
-        space = 8 + 8 + 8 + 8 + 8 + 8 + 8
+        space = 8 + 8 + 8 + 8 + 8 + 8 + 8 + 8
     )]
     pub global_account: Account<'info, GlobalDataAccount>,
     pub system_program: Program<'info, System>,

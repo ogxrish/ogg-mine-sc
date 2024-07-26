@@ -91,12 +91,11 @@ describe("test", () => {
     tx.add(i1, i2, i3);
     await provider.sendAndConfirm(tx);
   });
-  return;
-  // it("changes global parameters", async () => {
-  //   await program.methods.changeGlobalParameters(new anchor.BN(2), new anchor.BN(60)).accounts({
-  //     signer: wallet.publicKey
-  //   }).rpc();
-  // })
+  it("changes global parameters", async () => {
+    await program.methods.changeGlobalParameters(new anchor.BN(2), new anchor.BN(60), new anchor.BN(400000)).accounts({
+      signer: wallet.publicKey
+    }).rpc();
+  })
   
   it("mines", async () => {
     await program.methods.mine(new anchor.BN(1)).accounts({
