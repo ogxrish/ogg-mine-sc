@@ -2,9 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token::{transfer, Mint, Token, TokenAccount, Transfer}};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
 
-declare_id!("6YVNXrYevrCN6VQgDzx5dWY9eJizBW9hSmts62YhbziH");
+declare_id!("7ZU14GnHB6bBvF2Aum6ehHaXgjYE24WPzEBsBPddptVL");
 
-const CREATOR: &str = "Ddi1GaugnX9yQz1WwK1b12m4o23rK1krZQMcnt2aNW97";
+const CREATOR: &str = "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 // redeploy with new creator, withraw program token function, and owner param
 #[program]
 pub mod test {
@@ -15,12 +15,12 @@ pub mod test {
         ctx.accounts.global_account.epoch_end = 0;
         ctx.accounts.global_account.token_decimals = ctx.accounts.mint.decimals as u64;
         ctx.accounts.global_account.reward = 0;
-        ctx.accounts.global_account.epoch_length = 86400 / 4; // seconds, 86400 for a day
+        ctx.accounts.global_account.epoch_length = 86400 / 4; // 10; // seconds, 86400 for a day
         ctx.accounts.global_account.epoch_reward_percent = 2;
         ctx.accounts.global_account.fee_lamports = LAMPORTS_PER_SOL / 10000;
         Ok(())
     }
-    pub fn initialize_epoch(ctx: Context<InitializeEpoch>, epoch: u64) -> Result<()> {
+    pub fn initialize_epoch(_ctx: Context<InitializeEpoch>, epoch: u64) -> Result<()> {
         if epoch != 0 {
             return Err(CustomError::InvalidEpoch.into())
         }
@@ -66,12 +66,18 @@ pub mod test {
             amount
         )
     }
-    pub fn withdraw_fees(ctx: Context<WithdrawFees>, amount: u64) -> Result<()> {
+    pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
         if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
             return Err(CustomError::WrongSigner.into())
         }
-        **ctx.accounts.program_authority.try_borrow_mut_lamports()? -= amount;
-        **ctx.accounts.signer.try_borrow_mut_lamports()? += amount;
+        let min_rent = Rent::get()?.minimum_balance(8) + 1;
+        let transfer = ctx.accounts.program_authority.get_lamports() - min_rent;
+        msg!("{}, {}, {}", min_rent, transfer, ctx.accounts.program_authority.get_lamports());
+        if transfer <= 0 {
+            return Err(CustomError::NoFeesToWithdraw.into())
+        }
+        **ctx.accounts.program_authority.try_borrow_mut_lamports()? -= transfer;
+        **ctx.accounts.signer.try_borrow_mut_lamports()? += transfer;
         Ok(())
     }
     pub fn new_epoch(ctx: Context<NewEpoch>, epoch: u64) -> Result<()> {
@@ -156,7 +162,9 @@ pub enum CustomError {
     #[msg("Wrong signer")]
     WrongSigner,
     #[msg("Invalid epoch")]
-    InvalidEpoch
+    InvalidEpoch,
+    #[msg("No fees to withdraw")]
+    NoFeesToWithdraw
 }
 #[account]
 pub struct GlobalDataAccount {
@@ -242,8 +250,6 @@ pub struct FundProgramToken<'info> {
 }
 #[derive(Accounts)]
 pub struct WithdrawFees<'info> {
-    #[account(mut)]
-    pub signer: Signer<'info>,
     #[account(
         mut,
         seeds = [b"auth"],
@@ -251,6 +257,8 @@ pub struct WithdrawFees<'info> {
     )]
     /// CHECK: 
     pub program_authority: AccountInfo<'info>,
+    #[account(mut)]
+    pub signer: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 #[derive(Accounts)]

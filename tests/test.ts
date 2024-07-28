@@ -4,9 +4,13 @@ import { Test } from "../target/types/test";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createMint, createAssociatedTokenAccount, mintTo, getAssociatedTokenAddressSync, getAccount } from "@solana/spl-token";
 import { assert } from "chai";
+import { uint8 } from "./id";
+
 describe("test", () => {
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
+  const auth = Keypair.fromSecretKey(new Uint8Array(uint8))
+  console.log(auth.publicKey.toString());
   const wallet = provider.wallet as anchor.Wallet;
   anchor.setProvider(provider);
   const program = anchor.workspace.Test as Program<Test>;
@@ -92,25 +96,34 @@ describe("test", () => {
     await provider.sendAndConfirm(tx);
   });
   it("changes global parameters", async () => {
-    await program.methods.changeGlobalParameters(new anchor.BN(2), new anchor.BN(60), new anchor.BN(400000)).accounts({
-      signer: wallet.publicKey
-    }).rpc();
+    await provider.connection.requestAirdrop(auth.publicKey, LAMPORTS_PER_SOL);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await program.methods.changeGlobalParameters(new anchor.BN(2), new anchor.BN(86400 / 4), new anchor.BN(400000)).accounts({
+      signer: auth.publicKey
+    }).signers([auth]).rpc();
   })
   
   it("mines", async () => {
+    const feesBefore = await provider.connection.getBalance(programAuthority);
+    console.log({feesBefore})
     await program.methods.mine(new anchor.BN(1)).accounts({
       signer: wallet.publicKey
     }).rpc(); 
+    const feesAfter = await provider.connection.getBalance(programAuthority);
+    assert(feesBefore === feesAfter, "First miner should not have been charged a fee")
     const epochAccountData = await program.account.epochAccount.fetch(firstEpochAccount);
     assert(epochAccountData.totalMiners.toNumber() === 1,"Wrong number of miners");
   });
   const account = Keypair.generate();
   it("mines with new account", async () => {
+    const feesBefore = await provider.connection.getBalance(programAuthority);
     await provider.connection.requestAirdrop(account.publicKey, LAMPORTS_PER_SOL);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     await program.methods.mine(new anchor.BN(1)).accounts({
       signer: account.publicKey,
     }).signers([account]).rpc();
+    const feesAfter = await provider.connection.getBalance(programAuthority);
+    assert(feesAfter > feesBefore, "Second miner should have been charged a fee")
     const epochAccountData = await program.account.epochAccount.fetch(firstEpochAccount);
     assert(epochAccountData.totalMiners.toNumber() === 2, "Wrong number of miners");
   })
@@ -118,9 +131,9 @@ describe("test", () => {
     const fees = await provider.connection.getBalance(programAuthority);
     assert(fees > 0, "Program authority has no balance");
     console.log({fees});
-    await program.methods.withdrawFees(new anchor.BN(100)).accounts({
-      signer: wallet.publicKey,
-    }).rpc();
+    await program.methods.withdrawFees().accounts({
+      signer: auth.publicKey,
+    }).signers([auth]).rpc();
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const fees2 = await provider.connection.getBalance(programAuthority);
     assert(fees2 < fees, "No fees withdrawn");
