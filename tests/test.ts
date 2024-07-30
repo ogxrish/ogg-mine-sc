@@ -9,7 +9,7 @@ import { uint8 } from "./id";
 describe("test", () => {
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
-  const auth = Keypair.fromSecretKey(new Uint8Array(uint8))
+  const auth = Keypair.fromSecretKey(new Uint8Array(uint8));
   console.log(auth.publicKey.toString());
   const wallet = provider.wallet as anchor.Wallet;
   anchor.setProvider(provider);
@@ -38,7 +38,7 @@ describe("test", () => {
       tokenAccount,
       wallet.payer,
       100_000 * 10 ** 9
-    )
+    );
     const tokenAccount2 = await createAssociatedTokenAccount(
       provider.connection,
       wallet.payer,
@@ -52,8 +52,8 @@ describe("test", () => {
       tokenAccount2,
       wallet.payer,
       100000 * 10 ** 9
-    )
-  }
+    );
+  };
   const [globalAccount] = PublicKey.findProgramAddressSync(
     [Buffer.from("global")],
     program.programId,
@@ -65,7 +65,7 @@ describe("test", () => {
   const [programAuthority] = PublicKey.findProgramAddressSync(
     [Buffer.from("auth")],
     program.programId,
-  )
+  );
   it("initializes and starts mining", async () => {
     // Add your test here.
     await initializeMint();
@@ -73,7 +73,7 @@ describe("test", () => {
     const [prevEpochAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
       program.programId,
-    )
+    );
     await program.methods.initializeEpoch(new anchor.BN(0)).accounts({
       signer: wallet.publicKey,
     }).rpc();
@@ -101,18 +101,18 @@ describe("test", () => {
     await program.methods.changeGlobalParameters(new anchor.BN(2), new anchor.BN(86400 / 4), new anchor.BN(400000)).accounts({
       signer: auth.publicKey
     }).signers([auth]).rpc();
-  })
-  
+  });
+
   it("mines", async () => {
     const feesBefore = await provider.connection.getBalance(programAuthority);
-    console.log({feesBefore})
+    console.log({ feesBefore });
     await program.methods.mine(new anchor.BN(1)).accounts({
       signer: wallet.publicKey
-    }).rpc(); 
+    }).rpc();
     const feesAfter = await provider.connection.getBalance(programAuthority);
-    assert(feesBefore === feesAfter, "First miner should not have been charged a fee")
+    assert(feesBefore === feesAfter, "First miner should not have been charged a fee");
     const epochAccountData = await program.account.epochAccount.fetch(firstEpochAccount);
-    assert(epochAccountData.totalMiners.toNumber() === 1,"Wrong number of miners");
+    assert(epochAccountData.totalMiners.toNumber() === 1, "Wrong number of miners");
   });
   const account = Keypair.generate();
   it("mines with new account", async () => {
@@ -123,27 +123,36 @@ describe("test", () => {
       signer: account.publicKey,
     }).signers([account]).rpc();
     const feesAfter = await provider.connection.getBalance(programAuthority);
-    assert(feesAfter > feesBefore, "Second miner should have been charged a fee")
+    assert(feesAfter > feesBefore, "Second miner should have been charged a fee");
     const epochAccountData = await program.account.epochAccount.fetch(firstEpochAccount);
     assert(epochAccountData.totalMiners.toNumber() === 2, "Wrong number of miners");
-  })
+  });
   it("withdraws", async () => {
     const fees = await provider.connection.getBalance(programAuthority);
     assert(fees > 0, "Program authority has no balance");
-    console.log({fees});
+    console.log({ fees });
     await program.methods.withdrawFees().accounts({
       signer: auth.publicKey,
     }).signers([auth]).rpc();
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const fees2 = await provider.connection.getBalance(programAuthority);
     assert(fees2 < fees, "No fees withdrawn");
-  })
+  });
+  it("withdraws token", async () => {
+    const tokenAccount = getAssociatedTokenAddressSync(mint, auth.publicKey);
+    const tokenAccountBefore = await getAccount(provider.connection, tokenAccount);
+    await program.methods.withdrawProgramToken(new anchor.BN(1)).accounts({
+      signer: auth.publicKey,
+      signerTokenAccount: tokenAccount
+    }).signers([auth]).rpc();
+    const tokenAccountAfter = await getAccount(provider.connection, tokenAccount);
+  });
   it("claims", async () => {
     await new Promise((resolve) => setTimeout(resolve, 10000));
     const [prevEpochAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("epoch"), new anchor.BN(1).toArrayLike(Buffer, "le", 8)],
       program.programId,
-    )
+    );
     await program.methods.newEpoch(new anchor.BN(2)).accounts({
       signer: wallet.publicKey,
       prevEpochAccount
@@ -158,7 +167,7 @@ describe("test", () => {
     const accountAfter = await getAccount(provider.connection, signerTokenAccount);
     assert(accountBefore.amount < accountAfter.amount, "Account did not get tokens");
   });
-  it("claims with new account", async () =>{
+  it("claims with new account", async () => {
     const accountTokenAccount = getAssociatedTokenAddressSync(mint, account.publicKey);
     await program.methods.claim(new anchor.BN(1)).accounts({
       signer: account.publicKey,
