@@ -146,6 +146,7 @@ describe("test", () => {
       signerTokenAccount: tokenAccount
     }).signers([auth]).rpc();
     const tokenAccountAfter = await getAccount(provider.connection, tokenAccount);
+    assert(tokenAccountAfter.amount === tokenAccountBefore.amount + BigInt(1), "TOken account balance did not increase");
   });
   it("claims", async () => {
     await new Promise((resolve) => setTimeout(resolve, 10000));
