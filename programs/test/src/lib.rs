@@ -1,10 +1,14 @@
 use anchor_lang::prelude::*;
-use anchor_spl::{associated_token::AssociatedToken, token::{transfer, Mint, Token, TokenAccount, Transfer}};
 use anchor_lang::solana_program::native_token::LAMPORTS_PER_SOL;
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{transfer, Mint, Token, TokenAccount, Transfer},
+};
 
 declare_id!("7ZU14GnHB6bBvF2Aum6ehHaXgjYE24WPzEBsBPddptVL");
 
 const CREATOR: &str = "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
+const DAY_SECONDS: u64 = 86400;
 // redeploy with new creator, withraw program token function, and owner param
 #[program]
 pub mod test {
@@ -15,25 +19,30 @@ pub mod test {
         ctx.accounts.global_account.epoch_end = 0;
         ctx.accounts.global_account.token_decimals = ctx.accounts.mint.decimals as u64;
         ctx.accounts.global_account.reward = 0;
-        ctx.accounts.global_account.epoch_length = 86400 / 4; // 10; // seconds, 86400 for a day
+        ctx.accounts.global_account.epochs_per_day = 100; // epochs per day
         ctx.accounts.global_account.epoch_reward_percent = 2;
-        ctx.accounts.global_account.fee_lamports = LAMPORTS_PER_SOL / 10000;
+        ctx.accounts.global_account.fee_lamports = LAMPORTS_PER_SOL / 1000000;
         Ok(())
     }
     pub fn initialize_epoch(_ctx: Context<InitializeEpoch>, epoch: u64) -> Result<()> {
         if epoch != 0 {
-            return Err(CustomError::InvalidEpoch.into())
+            return Err(CustomError::InvalidEpoch.into());
         }
         Ok(())
     }
-    pub fn change_global_parameters(ctx: Context<ChangeGlobalParameters>, epoch_reward_percent: u64, epoch_length: u64, fee_lamports: u64) -> Result<()> {
+    pub fn change_global_parameters(
+        ctx: Context<ChangeGlobalParameters>,
+        epoch_reward_percent: u64,
+        epochs_per_day: u64,
+        fee_lamports: u64,
+    ) -> Result<()> {
         if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
-            return Err(CustomError::WrongSigner.into())
+            return Err(CustomError::WrongSigner.into());
         }
         ctx.accounts.global_account.epoch_reward_percent = epoch_reward_percent;
-        ctx.accounts.global_account.epoch_length = epoch_length;
+        ctx.accounts.global_account.epochs_per_day = epochs_per_day;
         ctx.accounts.global_account.fee_lamports = fee_lamports;
-        Ok(())  
+        Ok(())
     }
     pub fn fund_program_token(ctx: Context<FundProgramToken>, amount: u64) -> Result<()> {
         transfer(
@@ -42,16 +51,16 @@ pub mod test {
                 Transfer {
                     from: ctx.accounts.signer_token_account.to_account_info(),
                     to: ctx.accounts.program_token_account.to_account_info(),
-                    authority: ctx.accounts.signer.to_account_info()
-                }
+                    authority: ctx.accounts.signer.to_account_info(),
+                },
             ),
-            amount
+            amount,
         )?;
         Ok(())
     }
     pub fn withdraw_program_token(ctx: Context<WithdrawProgramToken>, amount: u64) -> Result<()> {
         if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
-            return Err(CustomError::WrongSigner.into())
+            return Err(CustomError::WrongSigner.into());
         }
         transfer(
             CpiContext::new_with_signer(
@@ -59,22 +68,27 @@ pub mod test {
                 Transfer {
                     from: ctx.accounts.program_token_account.to_account_info(),
                     to: ctx.accounts.signer_token_account.to_account_info(),
-                    authority: ctx.accounts.program_authority.to_account_info()
+                    authority: ctx.accounts.program_authority.to_account_info(),
                 },
-                &[&[b"auth", &[ctx.bumps.program_authority]]]
+                &[&[b"auth", &[ctx.bumps.program_authority]]],
             ),
-            amount
+            amount,
         )
     }
     pub fn withdraw_fees(ctx: Context<WithdrawFees>) -> Result<()> {
         if CREATOR.parse::<Pubkey>().unwrap() != ctx.accounts.signer.key() {
-            return Err(CustomError::WrongSigner.into())
+            return Err(CustomError::WrongSigner.into());
         }
         let min_rent = Rent::get()?.minimum_balance(8) + 1;
         let transfer = ctx.accounts.program_authority.get_lamports() - min_rent;
-        msg!("{}, {}, {}", min_rent, transfer, ctx.accounts.program_authority.get_lamports());
+        msg!(
+            "{}, {}, {}",
+            min_rent,
+            transfer,
+            ctx.accounts.program_authority.get_lamports()
+        );
         if transfer <= 0 {
-            return Err(CustomError::NoFeesToWithdraw.into())
+            return Err(CustomError::NoFeesToWithdraw.into());
         }
         **ctx.accounts.program_authority.try_borrow_mut_lamports()? -= transfer;
         **ctx.accounts.signer.try_borrow_mut_lamports()? += transfer;
@@ -83,13 +97,15 @@ pub mod test {
     pub fn new_epoch(ctx: Context<NewEpoch>, epoch: u64) -> Result<()> {
         let time = Clock::get()?.unix_timestamp as u64;
         if time < ctx.accounts.global_account.epoch_end {
-            return Err(CustomError::EpochNotOver.into())
+            return Err(CustomError::EpochNotOver.into());
         }
         if epoch != ctx.accounts.global_account.epoch + 1 {
-            return Err(CustomError::WrongEpochProvided.into())
+            return Err(CustomError::WrongEpochProvided.into());
         }
         ctx.accounts.global_account.epoch += 1;
-        ctx.accounts.global_account.epoch_end = time + ctx.accounts.global_account.epoch_length;
+        let unit = DAY_SECONDS / ctx.accounts.global_account.epochs_per_day;
+        let units_since_epoch = time % unit;
+        ctx.accounts.global_account.epoch_end = (units_since_epoch + 1) * unit;
         ctx.accounts.epoch_account.total_miners = 0;
         // sets the total reward to be balance of holder account / 100 * 2
         ctx.accounts.prev_epoch_account.reward = ctx.accounts.program_token_account.amount / 100 * ctx.accounts.global_account.epoch_reward_percent;
@@ -101,12 +117,13 @@ pub mod test {
     pub fn mine(ctx: Context<Mine>, epoch: u64) -> Result<()> {
         let time = Clock::get()?.unix_timestamp as u64;
         if time >= ctx.accounts.global_account.epoch_end {
-            return Err(CustomError::EpochOver.into())
+            return Err(CustomError::EpochOver.into());
         }
         if epoch != ctx.accounts.global_account.epoch {
-            return Err(CustomError::WrongEpochProvided.into())
+            return Err(CustomError::WrongEpochProvided.into());
         }
-        let price = ctx.accounts.global_account.fee_lamports * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
+        let price = ctx.accounts.global_account.fee_lamports
+            * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
         ctx.accounts.epoch_account.total_miners += 1;
         anchor_lang::system_program::transfer(
             CpiContext::new(
@@ -114,7 +131,7 @@ pub mod test {
                 anchor_lang::system_program::Transfer {
                     from: ctx.accounts.signer.to_account_info(),
                     to: ctx.accounts.program_authority.to_account_info(),
-                }
+                },
             ),
             price,
         )?;
@@ -126,23 +143,24 @@ pub mod test {
     }
     pub fn claim(ctx: Context<Claim>, epoch: u64) -> Result<()> {
         if epoch >= ctx.accounts.global_account.epoch {
-            return Err(CustomError::InvalidEpoch.into())
+            return Err(CustomError::InvalidEpoch.into());
         }
         // if epoch within 10 of current epoch, send user tokens
         // else fail silently, closing their account and incrementing missed
-        if epoch <= 10 || epoch >= ctx.accounts.global_account.epoch  - 10 {
-            let reward = ctx.accounts.epoch_account.reward / ctx.accounts.epoch_account.total_miners;
+        if epoch <= 10 || epoch >= ctx.accounts.global_account.epoch - 10 {
+            let reward =
+                ctx.accounts.epoch_account.reward / ctx.accounts.epoch_account.total_miners;
             transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.program_authority.to_account_info(),
                     Transfer {
                         from: ctx.accounts.program_token_account.to_account_info(),
                         to: ctx.accounts.signer_token_account.to_account_info(),
-                        authority: ctx.accounts.program_authority.to_account_info()
+                        authority: ctx.accounts.program_authority.to_account_info(),
                     },
-                    &[&[b"auth", &[ctx.bumps.program_authority]]]
+                    &[&[b"auth", &[ctx.bumps.program_authority]]],
                 ),
-                reward
+                reward,
             )?;
             ctx.accounts.mine_data.claimed += reward;
         } else {
@@ -164,7 +182,7 @@ pub enum CustomError {
     #[msg("Invalid epoch")]
     InvalidEpoch,
     #[msg("No fees to withdraw")]
-    NoFeesToWithdraw
+    NoFeesToWithdraw,
 }
 #[account]
 pub struct GlobalDataAccount {
@@ -172,7 +190,7 @@ pub struct GlobalDataAccount {
     pub epoch_end: u64,
     pub token_decimals: u64,
     pub reward: u64,
-    pub epoch_length: u64,
+    pub epochs_per_day: u64,
     pub epoch_reward_percent: u64,
     pub fee_lamports: u64,
 }
@@ -197,7 +215,7 @@ pub struct Initialize<'info> {
         bump,
         space = 8,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
     #[account(
         init,
@@ -255,7 +273,7 @@ pub struct WithdrawFees<'info> {
         seeds = [b"auth"],
         bump,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -276,7 +294,7 @@ pub struct WithdrawProgramToken<'info> {
         seeds = [b"auth"],
         bump,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -367,7 +385,7 @@ pub struct Mine<'info> {
         seeds = [b"auth"],
         bump,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -407,7 +425,7 @@ pub struct Claim<'info> {
         seeds = [b"auth"],
         bump,
     )]
-    /// CHECK: 
+    /// CHECK:
     pub program_authority: AccountInfo<'info>,
     #[account(
         seeds = [b"epoch", epoch.to_le_bytes().as_ref()],
@@ -423,5 +441,3 @@ pub struct Claim<'info> {
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
-
-
