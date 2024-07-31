@@ -5,7 +5,7 @@ use anchor_spl::{
     token::{transfer, Mint, Token, TokenAccount, Transfer},
 };
 
-declare_id!("7ZU14GnHB6bBvF2Aum6ehHaXgjYE24WPzEBsBPddptVL");
+declare_id!("97PknNK44vrCKs88WpEXQwDqhRFS4SZwVVWyo2BjFstn");
 
 const CREATOR: &str = "oggzGFTgRM61YmhEbgWeivVmQx8bSAdBvsPGqN3ZfxN";
 const DAY_SECONDS: u64 = 86400;
@@ -104,7 +104,7 @@ pub mod test {
         }
         ctx.accounts.global_account.epoch += 1;
         let unit = DAY_SECONDS / ctx.accounts.global_account.epochs_per_day;
-        let units_since_epoch = time % unit;
+        let units_since_epoch = time / unit;
         ctx.accounts.global_account.epoch_end = (units_since_epoch + 1) * unit;
         ctx.accounts.epoch_account.total_miners = 0;
         // sets the total reward to be balance of holder account / 100 * 2
@@ -122,8 +122,7 @@ pub mod test {
         if epoch != ctx.accounts.global_account.epoch {
             return Err(CustomError::WrongEpochProvided.into());
         }
-        let price = ctx.accounts.global_account.fee_lamports
-            * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
+        let price = ctx.accounts.global_account.fee_lamports * ctx.accounts.epoch_account.total_miners.pow(2); // y (price) = .1 SOL / 2000 * x ** 2 (minters);
         ctx.accounts.epoch_account.total_miners += 1;
         anchor_lang::system_program::transfer(
             CpiContext::new(

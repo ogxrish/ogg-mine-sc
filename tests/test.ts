@@ -2,9 +2,10 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { Test } from "../target/types/test";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { createMint, createAssociatedTokenAccount, mintTo, getAssociatedTokenAddressSync, getAccount } from "@solana/spl-token";
+import { createMint, createAssociatedTokenAccount, mintTo, getAssociatedTokenAddressSync, getAccount, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 import { assert } from "chai";
 import { uint8 } from "./id";
+import { BN } from "bn.js";
 
 describe("test", () => {
   // Configure the client to use the local cluster.
@@ -70,6 +71,7 @@ describe("test", () => {
     // Add your test here.
     await initializeMint();
     console.log(mint.toString());
+    
     const [prevEpochAccount] = PublicKey.findProgramAddressSync(
       [Buffer.from("epoch"), new anchor.BN(0).toArrayLike(Buffer, "le", 8)],
       program.programId,
@@ -139,13 +141,13 @@ describe("test", () => {
     assert(fees2 < fees, "No fees withdrawn");
   });
   it("withdraws token", async () => {
-    const tokenAccount = getAssociatedTokenAddressSync(mint, auth.publicKey);
-    const tokenAccountBefore = await getAccount(provider.connection, tokenAccount);
+    const tokenAccount = await getOrCreateAssociatedTokenAccount(provider.connection, auth, mint, auth.publicKey);
+    const tokenAccountBefore = await getAccount(provider.connection, tokenAccount.address);
     await program.methods.withdrawProgramToken(new anchor.BN(1)).accounts({
       signer: auth.publicKey,
-      signerTokenAccount: tokenAccount
+      signerTokenAccount: tokenAccount.address
     }).signers([auth]).rpc();
-    const tokenAccountAfter = await getAccount(provider.connection, tokenAccount);
+    const tokenAccountAfter = await getAccount(provider.connection, tokenAccount.address);
     assert(tokenAccountAfter.amount === tokenAccountBefore.amount + BigInt(1), "TOken account balance did not increase");
   });
   it("claims", async () => {
